@@ -15,7 +15,7 @@ body,
 }
 
 body {
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
 }
@@ -26,20 +26,30 @@ button {
 }
 
 ::selection {
-  background: var(--phosphor-dim);
+  background: var(--ui-accent-bg);
 }
 
 :focus-visible {
-  outline: 2px solid var(--amber);
+  outline: 2px solid var(--ui-accent);
   outline-offset: 1px;
 }
 
+/* Docked desktop layout: toolbar across the top, palette and inspector
+   docked either side of the schematic, like LTspice / MATLAB. */
 .app-shell {
   display: grid;
-  grid-template-columns: 68px 1fr 260px;
-  grid-template-rows: 52px 1fr;
+  grid-template-columns: 72px 1fr 270px;
+  grid-template-rows: 40px 1fr;
   height: 100vh;
   width: 100vw;
+  background: var(--ui-island);
+}
+
+.app-titlebar,
+.app-palette,
+.app-inspector {
+  background: var(--ui-island);
+  color: var(--ui-text);
 }
 
 .app-titlebar {
@@ -47,15 +57,15 @@ button {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 16px;
-  background: var(--bg-panel);
-  border-bottom: 1px solid var(--line-border);
+  gap: 12px;
+  padding: 0 8px 0 10px;
+  background: var(--ui-header);
+  border-bottom: 1px solid var(--ui-border);
 }
 
 .app-palette {
   grid-row: 2;
-  background: var(--bg-panel);
-  border-right: 1px solid var(--line-border);
+  border-right: 1px solid var(--ui-border);
   overflow-y: auto;
 }
 
@@ -64,12 +74,13 @@ button {
   position: relative;
   overflow: hidden;
   background: var(--bg-canvas);
+  /* sunken client area */
+  box-shadow: inset 1px 1px 0 #0b0c0e, inset -1px -1px 0 #34393f;
 }
 
 .app-inspector {
   grid-row: 2;
-  background: var(--bg-panel);
-  border-left: 1px solid var(--line-border);
+  border-left: 1px solid var(--ui-border);
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -82,26 +93,24 @@ button {
 }
 
 .brand-mark {
-  font-family: var(--font-display);
+  font-family: var(--font-ui);
   font-weight: 700;
-  font-size: 15px;
-  letter-spacing: 0.14em;
-  color: var(--text-primary);
+  font-size: 14px;
+  letter-spacing: 0.04em;
+  color: var(--ui-text);
 }
 
 .brand-mark span {
-  color: var(--phosphor);
+  color: var(--ui-accent-strong);
 }
 
 .brand-sub {
-  font-size: 10px;
-  letter-spacing: 0.08em;
-  color: var(--text-faint);
-  text-transform: uppercase;
+  font-size: 11px;
+  color: var(--ui-text-faint);
 }
 
 .hint-text {
-  font-size: 10.5px;
-  color: var(--text-dim);
-  line-height: 1.5;
+  font-size: 11.5px;
+  color: var(--ui-text-dim);
+  line-height: 1.45;
 }

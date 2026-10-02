@@ -87,6 +87,52 @@ export const COMPONENT_DEFS: Record<ComponentKind, ComponentDef> = {
     refPrefix: "V",
   },
 
+  battery: {
+    kind: "battery",
+    label: "Battery",
+    symbolId: "battery",
+    size: { w: 2, h: 1 },
+    pins: [
+      { id: "p1", name: "+", local: { x: -1, y: 0 } },
+      { id: "p2", name: "-", local: { x: 1, y: 0 } },
+    ],
+    params: [
+      { key: "voltage", label: "Voltage", unit: "volt", default: 9 },
+    ],
+    refPrefix: "V",
+  },
+
+  // Drawn as a two-terminal diamond (that is how the model detects it); its
+  // controlling expression is not captured, so it is simulated at the
+  // voltage set here.
+  vsource_dep: {
+    kind: "vsource_dep",
+    label: "Dependent Voltage Source",
+    symbolId: "vsource_dep",
+    size: { w: 2, h: 1 },
+    pins: [
+      { id: "p1", name: "A", local: { x: -1, y: 0 } },
+      { id: "p2", name: "B", local: { x: 1, y: 0 } },
+    ],
+    params: [
+      { key: "voltage", label: "Voltage", unit: "volt", default: 5 },
+    ],
+    refPrefix: "E",
+  },
+
+  diode: {
+    kind: "diode",
+    label: "Diode",
+    symbolId: "diode",
+    size: { w: 2, h: 1 },
+    pins: [
+      { id: "p1", name: "anode", local: { x: -1, y: 0 } },
+      { id: "p2", name: "cathode", local: { x: 1, y: 0 } },
+    ],
+    params: [],
+    refPrefix: "D",
+  },
+
   ground: {
     kind: "ground",
     label: "Ground",
@@ -104,6 +150,9 @@ export const PALETTE_ORDER: ComponentKind[] = [
   "inductor",
   "vsource_dc",
   "vsource_ac",
+  "battery",
+  "vsource_dep",
+  "diode",
   "ground",
 ];
 

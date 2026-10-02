@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useCircuitStore } from "../store/circuitStore";
 import { getDef } from "../domain/componentDefs";
-import { GRID_SIZE, resolvePinWorld, snap } from "../utils/geometry";
+import { GRID_SIZE, pinDirection, resolvePinWorld, snap } from "../utils/geometry";
 import { useCanvasView } from "./useCanvasView";
 import { ComponentView } from "./ComponentView";
 import { WireView } from "./WireView";
@@ -23,6 +23,7 @@ export function SchematicCanvas() {
   const select = useCircuitStore((s) => s.select);
   const addComponent = useCircuitStore((s) => s.addComponent);
   const moveComponent = useCircuitStore((s) => s.moveComponent);
+  const setWireRoute = useCircuitStore((s) => s.setWireRoute);
   const rotateComponent = useCircuitStore((s) => s.rotateComponent);
   const mirrorComponent = useCircuitStore((s) => s.mirrorComponent);
   const deleteSelected = useCircuitStore((s) => s.deleteSelected);
@@ -35,6 +36,7 @@ export function SchematicCanvas() {
     null
   );
   const dragging = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null);
+  const wireDrag = useRef<{ id: string; axis: "x" | "y" } | null>(null);
   const panning = useRef(false);
   // Set to true by a pin's onPointerUp handler so the SVG-level onPointerUp
   // knows NOT to cancel an in-progress wire (the pin already finished it).
@@ -90,6 +92,12 @@ export function SchematicCanvas() {
         updatePan(e.clientX, e.clientY);
         return;
       }
+      if (wireDrag.current) {
+        const { x, y } = screenToGrid(e.clientX, e.clientY);
+        const { id, axis } = wireDrag.current;
+        setWireRoute(id, { axis, value: snap(axis === "y" ? y : x) });
+        return;
+      }
       if (dragging.current) {
         const { x, y } = screenToGrid(e.clientX, e.clientY);
         moveComponent(dragging.current.id, x - dragging.current.offsetX, y - dragging.current.offsetY);
@@ -100,13 +108,14 @@ export function SchematicCanvas() {
         updateWireCursor({ x: snap(x), y: snap(y) });
       }
     },
-    [screenToGrid, moveComponent, pendingWire, updateWireCursor, updatePan]
+    [screenToGrid, moveComponent, setWireRoute, pendingWire, updateWireCursor, updatePan]
   );
 
   const onSvgPointerUp = useCallback(() => {
     panning.current = false;
     endPan();
     dragging.current = null;
+    wireDrag.current = null;
     if (pendingWire) {
       if (wireFinalizedByPin.current) {
         // A pin's onPointerUp already called finishWire — don't cancel.
@@ -172,6 +181,12 @@ export function SchematicCanvas() {
     const def = getDef(comp.kind);
     const pinDef = def.pins.find((p) => p.id === pinId)!;
     return resolvePinWorld(comp, pinDef);
+  };
+
+  const componentPinDir = (componentId: string, pinId: string) => {
+    const comp = components.find((c) => c.id === componentId);
+    const pinDef = comp && getDef(comp.kind).pins.find((p) => p.id === pinId);
+    return comp && pinDef ? pinDirection(comp, pinDef) : undefined;
   };
 
   const isPinConnected = (componentId: string, pinId: string) =>
@@ -242,10 +257,16 @@ export function SchematicCanvas() {
               componentPinWorld(w.from.componentId, w.from.pinId),
               componentPinWorld(w.to.componentId, w.to.pinId),
             ]}
+            dirs={[
+              componentPinDir(w.from.componentId, w.from.pinId),
+              componentPinDir(w.to.componentId, w.to.pinId),
+            ]}
             selected={selection?.type === "wire" && selection.id === w.id}
-            onPointerDown={(e) => {
+            route={w.route}
+            onPointerDown={(e, axis) => {
               e.stopPropagation();
               select({ type: "wire", id: w.id });
+              if (axis && e.button === 0) wireDrag.current = { id: w.id, axis };
             }}
           />
         ))}
@@ -253,6 +274,7 @@ export function SchematicCanvas() {
         {pendingWire && (
           <WireView
             points={[componentPinWorld(pendingWire.from.componentId, pendingWire.from.pinId), pendingWire.cursor]}
+            dirs={[componentPinDir(pendingWire.from.componentId, pendingWire.from.pinId)]}
             selected={false}
             onPointerDown={() => {}}
           />

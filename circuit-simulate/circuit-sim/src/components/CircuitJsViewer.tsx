@@ -63,7 +63,7 @@ export function CircuitJsViewer({ netlistJson }: Props) {
             rel="noreferrer"
             title="Open in Falstad full page"
           >
-            Open full ↗
+            Open full
           </a>
         </div>
       </div>

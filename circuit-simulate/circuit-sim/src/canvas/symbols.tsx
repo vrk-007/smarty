@@ -102,6 +102,49 @@ export function VSourceAcSymbol({ stroke, strokeWidth = 2 }: SymbolProps) {
   );
 }
 
+export function BatterySymbol({ stroke, strokeWidth = 2 }: SymbolProps) {
+  const p = commonProps(stroke, strokeWidth);
+  // Long plate = + (pin p1, left), short plate = - (pin p2, right).
+  return (
+    <g>
+      <line x1={-S} y1={0} x2={-0.15 * S} y2={0} {...p} />
+      <line x1={-0.15 * S} y1={-0.5 * S} x2={-0.15 * S} y2={0.5 * S} {...p} />
+      <line x1={0.15 * S} y1={-0.25 * S} x2={0.15 * S} y2={0.25 * S} {...p} strokeWidth={strokeWidth * 1.8} />
+      <line x1={0.15 * S} y1={0} x2={S} y2={0} {...p} />
+      <line x1={-0.5 * S} y1={-0.45 * S} x2={-0.3 * S} y2={-0.45 * S} {...p} strokeWidth={strokeWidth * 0.7} />
+      <line x1={-0.4 * S} y1={-0.55 * S} x2={-0.4 * S} y2={-0.35 * S} {...p} strokeWidth={strokeWidth * 0.7} />
+    </g>
+  );
+}
+
+export function VSourceDepSymbol({ stroke, strokeWidth = 2 }: SymbolProps) {
+  const p = commonProps(stroke, strokeWidth);
+  const r = 0.48 * S;
+  return (
+    <g>
+      <line x1={-S} y1={0} x2={-r} y2={0} {...p} />
+      <polygon points={`${-r},0 0,${-r} ${r},0 0,${r}`} {...p} />
+      <line x1={-0.26 * S} y1={0} x2={-0.08 * S} y2={0} {...p} />
+      <line x1={-0.17 * S} y1={-0.09 * S} x2={-0.17 * S} y2={0.09 * S} {...p} />
+      <line x1={0.1 * S} y1={0} x2={0.28 * S} y2={0} {...p} />
+      <line x1={r} y1={0} x2={S} y2={0} {...p} />
+    </g>
+  );
+}
+
+export function DiodeSymbol({ stroke, strokeWidth = 2 }: SymbolProps) {
+  const p = commonProps(stroke, strokeWidth);
+  // Triangle points from anode (p1, left) to the cathode bar (p2, right).
+  return (
+    <g>
+      <line x1={-S} y1={0} x2={-0.3 * S} y2={0} {...p} />
+      <polygon points={`${-0.3 * S},${-0.35 * S} ${0.3 * S},0 ${-0.3 * S},${0.35 * S}`} {...p} />
+      <line x1={0.3 * S} y1={-0.35 * S} x2={0.3 * S} y2={0.35 * S} {...p} />
+      <line x1={0.3 * S} y1={0} x2={S} y2={0} {...p} />
+    </g>
+  );
+}
+
 export function GroundSymbol({ stroke, strokeWidth = 2 }: SymbolProps) {
   const p = commonProps(stroke, strokeWidth);
   return (
@@ -120,5 +163,8 @@ export const SYMBOLS: Record<string, (props: SymbolProps) => ReactElement> = {
   inductor: InductorSymbol,
   vsource_dc: VSourceDcSymbol,
   vsource_ac: VSourceAcSymbol,
+  battery: BatterySymbol,
+  vsource_dep: VSourceDepSymbol,
+  diode: DiodeSymbol,
   ground: GroundSymbol,
 };

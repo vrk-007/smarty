@@ -1,2 +1,8 @@
 fastapi
 uvicorn[standard]
+# /generate-circuit (circuitmodel pipeline)
+ultralytics
+opencv-python
+numpy
+scikit-image
+# optional value OCR: install with  pip install --no-deps easyocr  (see BACKEND_SUMMARY.md)

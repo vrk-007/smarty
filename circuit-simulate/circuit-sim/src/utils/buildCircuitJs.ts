@@ -21,6 +21,7 @@
  */
 
 import type { JsonNetlist, JsonComponentDetail } from "./loadNetlistJson";
+import { clusterValues, CLUSTER_TOLERANCE_PX } from "./loadNetlistJson";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -79,18 +80,32 @@ export interface CjsPin {
 /**
  * Build a map: "R1.A" → { x, y, net_id } in CircuitJS grid space.
  * Keys are normalised to lower-case to reduce mismatch risk.
+ *
+ * Pin pixel coordinates are pre-clustered (same 50px tolerance used by the
+ * schematic canvas loader) before grid-snapping. Hand-drawn/detected pins
+ * that are meant to sit on the same rail rarely land on the exact same
+ * pixel, so snapping each one to the nearest 16px grid point independently
+ * can put "aligned" pins on different rows/columns and draw a diagonal wire
+ * between them instead of a straight one. Clustering first makes same-rail
+ * pins resolve to one shared coordinate, so their wires come out straight.
  */
 export function buildPinMap(netlist: JsonNetlist): Map<string, CjsPin> {
   const map = new Map<string, CjsPin>();
   const { sx, sy } = getScale(netlist);
 
-  for (const comp of netlist.component_details ?? []) {
+  const details = netlist.component_details ?? [];
+  const xCluster = clusterValues(details.flatMap((d) => d.pins.map((p) => p.x)), CLUSTER_TOLERANCE_PX);
+  const yCluster = clusterValues(details.flatMap((d) => d.pins.map((p) => p.y)), CLUSTER_TOLERANCE_PX);
+
+  for (const comp of details) {
     for (const pin of comp.pins) {
+      const cx = xCluster.get(pin.x) ?? pin.x;
+      const cy = yCluster.get(pin.y) ?? pin.y;
       // Store under multiple key variants so we survive pin-name differences
       const base = `${comp.ref_des}.${pin.name}`;
       const pos: CjsPin = {
-        x: toGrid(pin.x, sx) + OFFSET_X,
-        y: toGrid(pin.y, sy) + OFFSET_Y,
+        x: toGrid(cx, sx) + OFFSET_X,
+        y: toGrid(cy, sy) + OFFSET_Y,
         net_id: pin.net_id,
       };
       map.set(base, pos);
@@ -109,20 +124,21 @@ export function buildPinMap(netlist: JsonNetlist): Map<string, CjsPin> {
  * strings across the `nets[]` and `component_details[]` arrays.
  */
 function buildNetPositions(
-  netlist: JsonNetlist
+  netlist: JsonNetlist,
+  pinMap: Map<string, CjsPin>
 ): Map<string, { x: number; y: number }[]> {
-  const { sx, sy } = getScale(netlist);
   const map = new Map<string, { x: number; y: number }[]>();
 
   for (const comp of netlist.component_details ?? []) {
     for (const pin of comp.pins) {
       if (!pin.net_id) continue;
-      const pos = {
-        x: toGrid(pin.x, sx) + OFFSET_X,
-        y: toGrid(pin.y, sy) + OFFSET_Y,
-      };
+      // Reuse the already-clustered/grid-snapped position from pinMap so
+      // wire endpoints exactly match the coordinates the component itself
+      // was drawn at.
+      const pos = pinMap.get(`${comp.ref_des}.${pin.name}`);
+      if (!pos) continue;
       if (!map.has(pin.net_id)) map.set(pin.net_id, []);
-      map.get(pin.net_id)!.push(pos);
+      map.get(pin.net_id)!.push({ x: pos.x, y: pos.y });
     }
   }
 
@@ -157,7 +173,8 @@ function orderPins(
   // so CircuitJS renders the + label at the correct end.
   const t = type.toLowerCase();
   if (t === "voltage" || t === "battery" || t === "vsource_dc" || t === "dc voltage" || t === "dc" ||
-      t === "vsource_ac" || t === "ac voltage" || t === "ac") {
+      t === "vsource_ac" || t === "ac voltage" || t === "ac" ||
+      t === "vsource_dep" || t === "dep. voltage") {
     const name0 = pins[0].name.toLowerCase();
     const name1 = pins[1].name.toLowerCase();
     const p0IsNeg = NEG_PIN_NAMES.has(name0);
@@ -207,7 +224,9 @@ function componentLine(
     case "battery":
     case "vsource_dc":
     case "dc voltage":
-    case "dc":                          return `v ${x1} ${y1} ${x2} ${y2} 0 0 40 ${val} 0 0 0.5`;
+    case "dc":
+    case "dep. voltage":
+    case "vsource_dep":                 return `v ${x1} ${y1} ${x2} ${y2} 0 0 40 ${val} 0 0 0.5`;
     case "vsource_ac":
     case "ac voltage":
     case "ac source":
@@ -298,7 +317,7 @@ export function buildCircuitText(netlist: JsonNetlist): string {
   const pinMap = buildPinMap(netlist);
 
   // PRIMARY wire source: group pin positions by net_id
-  const netPositions = buildNetPositions(netlist);
+  const netPositions = buildNetPositions(netlist, pinMap);
 
   const lines: string[] = [];
 

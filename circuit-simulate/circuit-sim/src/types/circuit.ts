@@ -8,6 +8,9 @@ export type ComponentKind =
   | "inductor"
   | "vsource_dc"
   | "vsource_ac"
+  | "battery"
+  | "vsource_dep"
+  | "diode"
   | "ground";
 
 /** 0/90/180/270 degrees, clockwise. */
@@ -81,6 +84,14 @@ export interface Wire {
   from: PinRef;
   to: PinRef;
   waypoints?: { x: number; y: number }[];
+  /** Set when the user drags the wire: its crossing run sits on this line
+   *  (axis "y" = a horizontal run at y = value, "x" = a vertical run). */
+  route?: WireRoute;
+}
+
+export interface WireRoute {
+  axis: "x" | "y";
+  value: number;
 }
 
 /** The full document that gets saved, loaded, and simulated. */

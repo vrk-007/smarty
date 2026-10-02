@@ -108,7 +108,7 @@ export function SimulationPanel() {
         disabled={!canSimulate || simStatus === "running"}
         onClick={runSimulate}
       >
-        {simStatus === "running" ? "Simulating…" : "▸ Simulate"}
+        {simStatus === "running" ? "Simulating…" : "Simulate"}
       </button>
 
       <button className="btn-link" onClick={() => setShowPayload((v) => !v)}>

@@ -2,6 +2,8 @@
 
 Python/FastAPI backend for the circuit simulator. Accepts JSON netlists from the frontend, builds SPICE decks, runs them via **ngspice**, and returns DC operating-point results (branch currents, node voltages).
 
+> Full reference for every route, the YOLO model and the drawing-recognition pipeline: **[BACKEND_SUMMARY.md](BACKEND_SUMMARY.md)**.
+
 ## Prerequisites
 
 | Dependency | Install |
@@ -62,3 +64,18 @@ Current values are also **console-logged in Amperes** by the server.
 ### `GET /health`
 
 Returns `{ "status": "ok" }`.
+
+### `POST /generate-circuit`
+
+Turns an image of a hand-drawn circuit (the frontend's **✎ Draw Circuit** canvas) into a netlist using the YOLO pipeline in the sibling `circuitmodel` repo.
+
+**Request**: `{ "image": "data:image/png;base64,...", "title": "drawn-circuit" }`
+
+**Response**: the same JSON as `circuitmodel`'s `netlist.json` (`components`, `nets`, `component_details`, `wires`, ...). Returns `422` with a `detail` message if nothing is recognised.
+
+| Env var | Default |
+|---|---|
+| `CIRCUIT_MODEL_DIR` | `<FYPPP>/circuitmodel` |
+| `CIRCUIT_MODEL_WEIGHTS` | `$CIRCUIT_MODEL_DIR/circuit_detector_v2_best.pt` |
+
+Component values are filled in with defaults (1k, 10u, DC 5, ...). You can edit them afterwards in the properties panel.

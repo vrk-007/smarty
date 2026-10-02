@@ -5,6 +5,7 @@ import type {
   ComponentKind,
   PinRef,
   Wire,
+  WireRoute,
 } from "../types/circuit";
 import { getDef } from "../domain/componentDefs";
 import { snap } from "../utils/geometry";
@@ -44,6 +45,9 @@ interface CircuitState {
   /** The original parsed JsonNetlist — kept so CircuitJsViewer can build the
    *  Falstad text without re-reading the file. */
   netlistRaw: JsonNetlist | null;
+  /** Bumped whenever the whole scene is replaced (clear / load / generate),
+   *  so view-only state such as canvas pan/zoom can reset with it. */
+  sceneVersion: number;
   selection: SelectionRef;
   pendingWire: PendingWire | null;
   simStatus: "idle" | "running" | "done" | "error";
@@ -54,6 +58,7 @@ interface CircuitState {
 
   addComponent: (kind: ComponentKind, x: number, y: number) => void;
   moveComponent: (id: string, x: number, y: number) => void;
+  setWireRoute: (id: string, route: WireRoute) => void;
   rotateComponent: (id: string) => void;
   mirrorComponent: (id: string) => void;
   updateParam: (id: string, key: string, value: number) => void;
@@ -86,6 +91,7 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
   rawWireSegments: [],
   rawJunctions: [],
   netlistRaw: null,
+  sceneVersion: 0,
   selection: null,
   pendingWire: null,
   simStatus: "idle",
@@ -117,6 +123,11 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
       components: s.components.map((c) =>
         c.id === id ? { ...c, x: snap(x), y: snap(y) } : c
       ),
+    })),
+
+  setWireRoute: (id, route) =>
+    set((s) => ({
+      wires: s.wires.map((w) => (w.id === id ? { ...w, route } : w)),
     })),
 
   rotateComponent: (id) =>
@@ -194,7 +205,8 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
   cancelWire: () => set({ pendingWire: null }),
 
   clearAll: () =>
-    set({
+    set((s) => ({
+      sceneVersion: s.sceneVersion + 1,
       components: [],
       wires: [],
       rawWireSegments: [],
@@ -205,11 +217,12 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
       simStatus: "idle",
       simResult: null,
       simError: null,
-    }),
+    })),
 
   loadNetlist: (json) => {
     const { components, wires, skipped, rawWireSegments, rawJunctions } = loadNetlistJson(json);
-    set({
+    set((s) => ({
+      sceneVersion: s.sceneVersion + 1,
       components,
       wires,
       rawWireSegments,
@@ -220,7 +233,7 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
       simStatus: "idle",
       simResult: null,
       simError: null,
-    });
+    }));
     return skipped;
   },
 

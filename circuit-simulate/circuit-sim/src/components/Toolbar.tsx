@@ -6,9 +6,12 @@ import type { ViewMode } from "../App";
 interface ToolbarProps {
   viewMode: ViewMode;
   onViewModeChange: (mode: ViewMode) => void;
+  drawing: boolean;
+  onDrawClick: () => void;
+  onLoadImageClick: () => void;
 }
 
-export function Toolbar({ viewMode, onViewModeChange }: ToolbarProps) {
+export function Toolbar({ viewMode, onViewModeChange, drawing, onDrawClick, onLoadImageClick }: ToolbarProps) {
   const clearAll = useCircuitStore((s) => s.clearAll);
   const loadNetlist = useCircuitStore((s) => s.loadNetlist);
   const netlistRaw = useCircuitStore((s) => s.netlistRaw);
@@ -84,7 +87,7 @@ export function Toolbar({ viewMode, onViewModeChange }: ToolbarProps) {
               onClick={() => onViewModeChange("canvas")}
               title="SVG schematic canvas"
             >
-              ◈ Canvas
+              Canvas
             </button>
             <button
               id="view-toggle-circuitjs"
@@ -92,7 +95,7 @@ export function Toolbar({ viewMode, onViewModeChange }: ToolbarProps) {
               onClick={() => onViewModeChange("circuitjs")}
               title="Interactive CircuitJS simulation"
             >
-              ⚡ CircuitJS
+              CircuitJS
             </button>
           </div>
         )}
@@ -108,10 +111,28 @@ export function Toolbar({ viewMode, onViewModeChange }: ToolbarProps) {
 
         <button
           className="btn btn-load"
+          onClick={onDrawClick}
+          disabled={drawing}
+          title="Sketch a circuit and let the model generate the schematic"
+        >
+          Draw Circuit
+        </button>
+
+        <button
+          className="btn btn-load"
+          onClick={onLoadImageClick}
+          disabled={drawing}
+          title="Generate the schematic from a photo or scan of a circuit"
+        >
+          Load Image
+        </button>
+
+        <button
+          className="btn btn-load"
           onClick={handleLoadClick}
           title="Load a JSON netlist file"
         >
-          ⬆ Load Netlist
+          Load Netlist
         </button>
 
         <button
@@ -123,6 +144,7 @@ export function Toolbar({ viewMode, onViewModeChange }: ToolbarProps) {
           Clear
         </button>
       </div>
+
     </>
   );
 }
