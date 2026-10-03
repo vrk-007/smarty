@@ -6,3 +6,6 @@ opencv-python
 numpy
 scikit-image
 # optional value OCR: install with  pip install --no-deps easyocr  (see BACKEND_SUMMARY.md)
+# optional handwriting second reader for values (TrOCR, ~250 MB download on first use)
+transformers
+sentencepiece

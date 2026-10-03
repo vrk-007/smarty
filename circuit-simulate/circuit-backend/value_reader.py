@@ -19,7 +19,9 @@ ambiguous prefixes (an "M" next to a capacitor is micro, never mega).
 
 import math
 import re
-from dataclasses import dataclass
+import os
+import threading
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -87,6 +89,8 @@ class OcrItem:
     x2: int
     y2: int
     conf: float = 1.0
+    # Other readings of the same label (the handwriting model's); see parse_item.
+    alts: list[str] = field(default_factory=list)
 
     @property
     def center(self) -> tuple[float, float]:
@@ -140,7 +144,87 @@ def run_ocr(image: np.ndarray) -> list[OcrItem]:
         xs = [p[0] / scale for p in quad]
         ys = [p[1] / scale for p in quad]
         items.append(OcrItem(text, int(min(xs)), int(min(ys)), int(max(xs)), int(max(ys)), float(conf)))
-    return merge_line_items(items)
+    items = merge_line_items(items)
+
+    orig_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if image.ndim == 3 else image
+    for it in items:
+        alt = read_handwriting(orig_gray, it)
+        if alt:
+            it.alts.append(alt)
+    return items
+
+
+# ── Handwriting second opinion (TrOCR) ──────────────────────────
+#
+# easyocr's English model is trained on print and keeps turning the unit
+# letter into a digit ("9V" → "93", "2mH" → "2n31", "7kΩ" → "1kn"). TrOCR is
+# trained on handwriting and reads most of those right, but it has its own
+# misses, so it is used as a second reading of each label easyocr found and
+# parse_item picks whichever reading fits the component best. Optional: needs
+# `transformers` + `sentencepiece`; the weights (~250 MB) download on first use.
+# Set VALUE_OCR_TROCR=0 to turn it off.
+
+TROCR_MODEL = os.environ.get("VALUE_OCR_TROCR_MODEL", "microsoft/trocr-small-handwritten")
+# Vertical padding around easyocr's box, as a fraction of the text height.
+# Measured: wider crops (incl. horizontal padding) made TrOCR read worse.
+_TROCR_PAD = 0.3
+# Crops are resized to this height (px) first; tried 32–96 and unscaled,
+# 64 read best and stayed the same between 822 px and 1600 px drawings.
+_TROCR_HEIGHT = 64
+
+_trocr = None           # (image_processor, tokenizer, model), or False if unavailable
+_trocr_lock = threading.Lock()
+
+
+def _get_trocr():
+    global _trocr
+    if _trocr is None:
+        if os.environ.get("VALUE_OCR_TROCR", "1") == "0":
+            _trocr = False
+            return _trocr
+        try:
+            # Loaded piecewise: TrOCRProcessor fails to build the tokenizer
+            # under transformers 5, the explicit tokenizer class works.
+            from transformers import (RobertaTokenizer, ViTImageProcessor,
+                                      VisionEncoderDecoderModel, XLMRobertaTokenizer)
+            tok_cls = XLMRobertaTokenizer if "small" in TROCR_MODEL else RobertaTokenizer
+            _trocr = (ViTImageProcessor.from_pretrained(TROCR_MODEL),
+                      tok_cls.from_pretrained(TROCR_MODEL),
+                      VisionEncoderDecoderModel.from_pretrained(TROCR_MODEL).eval())
+        except Exception as exc:  # missing package, no network for first download, …
+            print(f"[value_reader] TrOCR unavailable, using easyocr only: {exc}")
+            _trocr = False
+    return _trocr
+
+
+def read_handwriting(gray: np.ndarray, item: OcrItem) -> str | None:
+    """TrOCR's reading of one label region, cleaned up, or None."""
+    with _trocr_lock:
+        trocr = _get_trocr()
+        if not trocr:
+            return None
+        import cv2
+        from PIL import Image
+        processor, tokenizer, model = trocr
+        pad = int(_TROCR_PAD * (item.y2 - item.y1))
+        crop = gray[max(0, item.y1 - pad):item.y2 + pad, max(0, item.x1):item.x2]
+        if crop.size == 0:
+            return None
+        s = _TROCR_HEIGHT / crop.shape[0]
+        crop = cv2.resize(crop, None, fx=s, fy=s,
+                          interpolation=cv2.INTER_AREA if s < 1 else cv2.INTER_CUBIC)
+        pixels = processor(images=Image.fromarray(crop).convert("RGB"), return_tensors="pt").pixel_values
+        ids = model.generate(pixels, max_new_tokens=12, num_beams=4)
+        text = tokenizer.batch_decode(ids, skip_special_tokens=True)[0]
+    return clean_handwriting(text)
+
+
+def clean_handwriting(text: str) -> str:
+    """TrOCR emits free text ("4 . 7k", "3V (", ", 220"): drop spaces and
+    punctuation, and anything before the first digit."""
+    text = re.sub(r"[^0-9.,a-zA-ZΩµμ]", "", text)
+    m = re.search(r"[0-9.]", text)
+    return text[m.start():].rstrip(".,") if m else ""
 
 
 def merge_line_items(items: list[OcrItem]) -> list[OcrItem]:
@@ -158,7 +242,7 @@ def merge_line_items(items: list[OcrItem]) -> list[OcrItem]:
                 m.conf = min(m.conf, it.conf)
                 break
         else:
-            merged.append(OcrItem(it.text, it.x1, it.y1, it.x2, it.y2, it.conf))
+            merged.append(OcrItem(it.text, it.x1, it.y1, it.x2, it.y2, it.conf, list(it.alts)))
     return merged
 
 
@@ -190,25 +274,37 @@ def parse_value_ex(text: str, cls_name: str | None = None
                    ) -> tuple[float | None, str | None, bool]:
     """Like parse_value, plus `inferred`: True when a trailing digit was
     reinterpreted as a prefix ("43" → 4k), i.e. the value is a guess."""
+    value, unit, inferred, _ = _parse(text, cls_name)
+    return value, unit, inferred
+
+
+def _parse(text: str, cls_name: str | None, guess_prefix: bool = True
+           ) -> tuple[float | None, str | None, bool, int]:
+    """parse_value_ex plus `fit`, how well the label's letters read as a value
+    for this class: +2 if it names the unit ("mH", "V"), -1 if the letter in
+    the prefix slot is neither a prefix nor the unit ("0.7th" → is that m?).
+    `guess_prefix=False` skips the trailing-digit rule, which was calibrated
+    on easyocr's confusions and misfires on TrOCR ("45µF" read "4540" → 454µ)."""
     m = _NUMBER_RE.match(text.replace(" ", ""))
     if not m:
-        return None, None, False
+        return None, None, False, 0
     digits = m.group(1)
     try:
         number = float(digits.translate(_DIGIT_FIXES))
     except ValueError:
-        return None, None, False
+        return None, None, False, 0
     suffix = m.group(2)
 
     expected = CLASS_UNIT.get(cls_name) if cls_name else None
     explicit = _unit_of(suffix)
     if expected and explicit and explicit != expected:
-        return None, None, False
+        return None, None, False, 0
     unit = expected or explicit
     if unit is None:
-        return None, None, False
+        return None, None, False, 0
 
     multiplier = 1.0
+    garbled = False
     if suffix:
         prefix = suffix[0]
         prefixes = _PREFIXES[unit]
@@ -216,11 +312,12 @@ def parse_value_ex(text: str, cls_name: str | None = None
         is_unit_letter = len(suffix) == 1 and _unit_of(suffix) == unit
         if prefix in prefixes and not is_unit_letter:
             multiplier = prefixes[prefix]
+        garbled = prefix not in prefixes and not any(a.startswith(prefix) for a in _UNIT_ALIASES[unit])
 
     lo, hi = _PLAUSIBLE[unit]
     inferred = False
     trailing = _TRAILING_DIGIT_PREFIX.get(unit, {}).get(digits[-1:].translate(_DIGIT_FIXES))
-    if multiplier == 1.0 and trailing and len(digits) > 1:
+    if guess_prefix and multiplier == 1.0 and trailing and len(digits) > 1:
         if unit == "ohm":
             # bare number, or number + the ohm sign / a stray "n"
             eligible = suffix == "" or explicit == "ohm"
@@ -237,8 +334,27 @@ def parse_value_ex(text: str, cls_name: str | None = None
 
     value = number * multiplier
     if lo <= value <= hi:
-        return value, unit, inferred
-    return None, None, False
+        return value, unit, inferred, 2 * (explicit == unit) - garbled
+    return None, None, False, 0
+
+
+def parse_item(item: OcrItem, cls_name: str | None) -> tuple[float | None, str | None, bool]:
+    """(value, unit, inferred) from the best of an item's readings for this
+    class. A reading scores for its letters fitting the class (see _parse),
+    for not needing the trailing-digit guess, and for agreeing with the other engine; on a tie
+    the handwriting model wins (it is the better reader of the two)."""
+    parsed = [_parse(t, cls_name, guess_prefix=False) for t in item.alts]
+    parsed.append(_parse(item.text, cls_name))
+    parsed = [p for p in parsed if p[0] is not None]
+    if not parsed:
+        return None, None, False
+
+    def score(p):
+        agree = sum(math.isclose(p[0], q[0], rel_tol=1e-6) for q in parsed) - 1
+        return p[3] + (not p[2]) + 2 * (agree > 0)
+
+    value, unit, inferred, _ = max(parsed, key=score)   # max keeps the first on ties
+    return value, unit, inferred
 
 
 # ── Matching labels to components ───────────────────────────────
@@ -255,7 +371,7 @@ def value_near_box(box, cls_name: str, items: list[OcrItem],
                    exclude: set[int] | None = None) -> tuple[float | None, str | None]:
     """Returns (numeric_value, unit) parsed from OCR text near the box, or (None, None) if nothing usable is found."""
     idx = _best_item(box, cls_name, items, max_dist, exclude)
-    return parse_value(items[idx].text, cls_name) if idx is not None else (None, None)
+    return parse_item(items[idx], cls_name)[:2] if idx is not None else (None, None)
 
 
 def _best_item(box, cls_name, items, max_dist=None, exclude=None) -> int | None:
@@ -272,7 +388,7 @@ def _best_item(box, cls_name, items, max_dist=None, exclude=None) -> int | None:
         d = _box_distance(box, item)
         if d > max_dist or d >= best_d:
             continue
-        if parse_value(item.text, cls_name)[0] is None:
+        if parse_item(item, cls_name)[0] is None:
             continue
         best, best_d = i, d
     return best
@@ -295,7 +411,7 @@ def assign_values(components, items: list[OcrItem]) -> dict[str, tuple[float, st
     for _, comp, i in pairs:
         if comp.component_id in values or i in used:
             continue
-        value, unit, inferred = parse_value_ex(items[i].text, comp.cls_name)
+        value, unit, inferred = parse_item(items[i], comp.cls_name)
         values[comp.component_id] = (value, unit, inferred)
         used.add(i)
     return values
